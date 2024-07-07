@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from math import floor, ceil
+from math import floor, ceil, log
 from itertools import chain, combinations
 import numpy as np
+from alive_progress import alive_bar
+import json
 
 # def all_subsets(lst, n):
 #     """Generate all subsets of a list of objects with length of the subset at most n."""
@@ -54,6 +56,9 @@ class Date:
     def __init__(self, epoch: int) -> None:
         if not isinstance(epoch, int): raise TypeError("Date takes int for epoch")
         self.epoch = epoch
+        
+    def __repr__(self):
+        return str(self.epoch)
         
     @property
     def year(self) -> int:
@@ -140,8 +145,16 @@ class Asset:
         else:
             # how much harvests left before death?
             return (floor((t - self.plant.growth - self.date.day ) / self.plant.regrow) + 1) * self.plant.sale  # from Plant.profit()
-        
-
+    
+    def harvest_day(self, epoch: int) -> int:
+        if self.plant.regrow == -1 or self.date.epoch + self.plant.growth >= epoch: 
+            return self.date.epoch + self.plant.growth
+        elif self.date.epoch + self.plant.growth < epoch:
+            return epoch if (k := (epoch - (self.date.epoch + self.plant.growth)) % self.plant.regrow) == 0 \
+                    else self.plant.regrow - k + epoch
+            
+            
+            
 def assess(assets: list[Asset], d:Date) -> int:
     # print("\nPORTOFOLIO ASSESMENT:")
     s: int = assets[0]
@@ -152,17 +165,19 @@ def assess(assets: list[Asset], d:Date) -> int:
 
 def simulate(assets:list[Asset], today:Date, T: int = None, different_one_day = 1, elimination_percentile = 50):
     if different_one_day < 0: raise ValueError("different_one_day must be a non-negative integer!")
-    def all_combinations_within_budget(cash, date:Date):
+    
+    # weakpoint of the whole operation
+    def all_combinations_within_budget(cash):
         """
         Generate all combinations of items with their prices that do not exceed the given budget,
         allowing multiple instances of the same item and ignoring the order of items in the combinations.
         """
-        print(date, date.epoch)
+        # print(date, date.epoch)
         items = list(PRICES.items())        
         def find_combinations(remaining_cash, current_combination, start_index):
             # Yield the current combination if the remaining cash is non-negative
             if remaining_cash >= 0:
-                yield [Asset(n,q,date) for n, q in zip(*np.unique([x for x,_ in current_combination], return_counts=True))]
+                yield current_combination
             # Explore further combinations by adding more items
             for i in range(start_index, len(items)):
                 item, price = items[i]
@@ -181,20 +196,61 @@ def simulate(assets:list[Asset], today:Date, T: int = None, different_one_day = 
     if not T: T = MONTH - today.day
     queue = [(assets, assess(assets, today), [])] # currently, current portf. value, history of purchases list[Asset] 
     for i in range(T):
-        tomorrow = []
-        while queue:
-            a = queue.pop(0)
-            tomorrow.append(a)
-            for x in all_combinations_within_budget(a[0][0], Date(today.epoch + i)):
-                tomorrow.append((a[0] + x, assess(a[0] + x, Date(today.epoch + i)), a[2] + x))
+        print(f"Started simulating day {today.epoch + i} ({i+1}.) with {len(queue)} number of branches")
         
-        queue = sorted(tomorrow, key=lambda x:x[1], reverse=True)
-        queue = queue[:ceil(len(queue)*(elimination_percentile/100))] # elimination method?!
+        with alive_bar(len(queue)) as bar:
+            tomorrow = []
+            while queue:
+                a = queue.pop(0)
+                for current_combination in all_combinations_within_budget(a[0][0]):
+                    # print("new contender")
+                # for x in all_combinations_within_budget(a[0][0], Date(today.epoch + i)):
+                    cash = 0 + a[0][0]
+                    new_assets = list()
+                    for n, q in zip(*np.unique([x for x,_ in current_combination], return_counts=True)):
+                        cash -= PRICES[n]*q
+                        new_assets.append(Asset(n,q,Date(today.epoch + i)))
+                    f = a[0] + new_assets
+                    # f[0] = cash
+                    g = []
+                    for asset in f[1:]:
+                        if asset.harvest_day(today.epoch + i) <= today.epoch + i:
+                            # print(f"selling {asset.name} from day {asset.date.epoch} for {asset.quantity * asset.plant.sale}")
+                            cash += asset.quantity * asset.plant.sale
+                            # print(f"sold. cash: {cash}")
+                        else:
+                            # if i > 4: print(f"appending {asset.name} from day {asset.date.epoch}")
+                            g.append(asset)
+                    
+                    g.insert(0, cash)
+                    # if not a[1] > (asm := assess(g, Date(today.epoch + i))):
+                    tomorrow.append((g, assess(g, Date(today.epoch + i)), a[2] + new_assets))
+                    # if i > 4:
+                    #     with open(f"TAG_{i+1}.txt", "w+", encoding="utf-8") as outf:
+                    #         for k in tomorrow:
+                    #             print(k[0], file=outf)
+                bar()
+        # print(queue)
+        queue = list(sorted(tomorrow, key=lambda x:x[1], reverse=True))
+        # print(queue[:3])
+        # queue = queue[:100]
+        # queue = queue[:ceil(len(queue)*(1-elimination_percentile/100))] # elimination method?!
+        queue = queue[:min(100, ceil(len(queue)**(1/2)))]
         
-    print(queue[:3])
-    
-    
-    
+    # print(queue)
+    for i, f in enumerate(queue[:3]):
+        print(f"\n|{'='*10}{f'{i+1}. helyezett':^15}{'='*10}|")
+        print(f"Összegzett portfólió érték: {f[1]}")
+        print(f"{'Nap':<5}{'Név':^12}{'Mennyiség':^10}{'Aratás':>10}")
+        with open(f"{i+1}.txt", "w+", encoding="utf-8") as outf:
+            for asset in f[0]:
+                print(asset, file=outf)
+            print("="*10,file=outf)
+            for asset in f[2]:
+                asset: Asset
+                print(f"{asset.date.epoch:<5}{asset.name:^12}{asset.quantity:^10}{(asset.date.epoch+asset.plant.growth):>10}")
+                print(asset, file=outf)
+
     
     
     
@@ -219,15 +275,16 @@ def main():
     print()
     # print(MONEY)
     print(ASSETS)
+    PLANTS = {i:p for i,p in PLANTS.items() if not p.flower}
     PRICES = {name:plant.price for name, plant in PLANTS.items()}
-    # PLANTS = {i:p for i,p in PLANTS.items() if not p.flower}
+
 
     for name, plant in PLANTS.items():
         print(name, plant.profit(), plant.daily())
         
     print(assess(ASSETS, Date(1)))
     
-    simulate(ASSETS, Date(1), 3)
+    simulate(ASSETS, Date(1), 28)
     
 
 if __name__ == "__main__":

@@ -60,6 +60,9 @@ for a,b in zip(*np.unique([x for x,_ in A], return_counts=True)):
 
 
 
+F 
+
+
 # # Example usage
 # lst = ['a', 'b', 'c']
 # n = 2
