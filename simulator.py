@@ -231,11 +231,18 @@ def simulate(assets:list[Asset], today:Date, T: int = None, different_one_day = 
                     #             print(k[0], file=outf)
                 bar()
         # print(queue)
-        queue = list(sorted(tomorrow, key=lambda x:x[1], reverse=True))
+        
         # print(queue[:3])
         # queue = queue[:100]
         # queue = queue[:ceil(len(queue)*(1-elimination_percentile/100))] # elimination method?!
-        queue = queue[:min(100, ceil(len(queue)**(1/2)))]
+        
+        # static most money
+        # tomorrow = list(sorted(tomorrow, key=lambda x:x[1], reverse=True))
+        # queue = tomorrow[:min(50, ceil(len(tomorrow)**(1/2)))]
+        
+        # most profit/history
+        tomorrow = list(sorted(tomorrow, key=lambda x:(x[1]/(p if (p := len(x[2])) else 1 )), reverse=True))
+        queue += tomorrow[:min(100, ceil(len(tomorrow)**(1/2)))]
         
     # print(queue)
     for i, f in enumerate(queue[:3]):
