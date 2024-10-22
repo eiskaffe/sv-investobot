@@ -291,7 +291,7 @@ def main():
         
     print(assess(ASSETS, Date(1)))
     
-    simulate(ASSETS, Date(1), 28)
+    simulate(ASSETS, Date(1), 21)
     
 
 if __name__ == "__main__":
